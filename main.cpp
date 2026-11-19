@@ -85,6 +85,114 @@ SplitScores evaluateFeature(vector<Example> data, int featureIndex) {
     return scores;
 }
 
+
+
+// A leaf predicts a class. An internal node asks about one feature.
+struct TreeNode {
+    bool isLeaf = true;
+    string prediction;
+    int featureIndex = -1;
+    map<string, TreeNode*> children;
+};
+
+// Find the most common class; alphabetical order breaks a tie.
+string majorityClass(vector<Example> data) {
+    map<string, int> counts;
+    for (Example example : data) counts[example.label]++;
+    string best = "";
+    int bestCount = -1;
+    for (auto entry : counts) {
+        if (entry.second > bestCount) {
+            best = entry.first;
+            bestCount = entry.second;
+        }
+    }
+    return best;
+}
+
+// Choose which of the three scores to maximize.
+double selectedScore(SplitScores scores, string metric) {
+    if (metric == "gain_ratio") return scores.gainRatio;
+    if (metric == "gini") return scores.giniDecrease;
+    return scores.informationGain;
+}
+
+// Build one subtree from its training examples.
+TreeNode* buildTree(vector<Example> data, vector<int> availableFeatures,
+                    string metric) {
+    TreeNode* node = new TreeNode();
+    node->prediction = majorityClass(data);
+
+    // Stop when all examples have the same label or no features remain.
+    bool sameClass = true;
+    for (Example example : data) {
+        if (example.label != data[0].label) sameClass = false;
+    }
+    if (sameClass || availableFeatures.empty()) return node;
+
+    int bestFeature = -1;
+    double bestScore = 0.0;
+    for (int feature : availableFeatures) {
+        SplitScores scores = evaluateFeature(data, feature);
+        double score = selectedScore(scores, metric);
+        if (score > bestScore + 1e-12) {
+            bestScore = score;
+            bestFeature = feature;
+        }
+    }
+
+    // No useful split: predict the majority class.
+    if (bestFeature == -1) return node;
+
+    node->isLeaf = false;
+    node->featureIndex = bestFeature;
+    map<string, vector<Example>> groups;
+    for (Example example : data) {
+        groups[example.features[bestFeature]].push_back(example);
+    }
+
+    // Categorical features are used at most once along a path.
+    vector<int> remainingFeatures;
+    for (int feature : availableFeatures) {
+        if (feature != bestFeature) remainingFeatures.push_back(feature);
+    }
+    for (auto group : groups) {
+        node->children[group.first] = buildTree(group.second, remainingFeatures, metric);
+    }
+    return node;
+}
+
+// Follow branches to get a prediction for a new example.
+string predict(TreeNode* node, Example example) {
+    while (!node->isLeaf) {
+        string value = example.features[node->featureIndex];
+        if (node->children.count(value) == 0) {
+            return node->prediction; // Unseen category: majority fallback
+        }
+        node = node->children[value];
+    }
+    return node->prediction;
+}
+
+// Print the rules in an easy-to-read format.
+void printTree(TreeNode* node, vector<string> columnNames, int depth = 0) {
+    string indent(depth * 2, ' ');
+    if (node->isLeaf) {
+        cout << indent << "Predict: " << node->prediction << endl;
+        return;
+    }
+    for (auto child : node->children) {
+        cout << indent << columnNames[node->featureIndex]
+             << " = " << child.first << endl;
+        printTree(child.second, columnNames, depth + 1);
+    }
+}
+
+void deleteTree(TreeNode* node) {
+    for (auto child : node->children) deleteTree(child.second);
+    delete node;
+}
+
 int main(int argc, char* argv[]) {
     string fileName = "data/weather.csv";
     if (argc > 1) fileName = argv[1];
@@ -175,5 +283,31 @@ int main(int argc, char* argv[]) {
     cout << "\nBest first split by Information Gain: " << bestGainFeature << endl;
     cout << "Best first split by Gain Ratio: " << bestRatioFeature << endl;
     cout << "Best first split by Gini Decrease: " << bestGiniFeature << endl;
+    // Step 3: Learn a tree and predict the labels of our small test dataset.
+    // These are training-set predictions, not an unbiased test accuracy.
+    string metric = "information_gain";
+    if (argc > 2) metric = argv[2];
+    if (metric != "information_gain" && metric != "gain_ratio" && metric != "gini") {
+        cout << "Metric must be information_gain, gain_ratio, or gini." << endl;
+        return 1;
+    }
+    vector<int> features;
+    for (int i = 0; i < (int)columnNames.size() - 1; i++) features.push_back(i);
+    TreeNode* tree = buildTree(data, features, metric);
+
+    cout << "\nDecision Tree (metric: " << metric << "):" << endl;
+    printTree(tree, columnNames);
+
+    int correct = 0;
+    cout << "\nTraining examples: Actual -> Predicted" << endl;
+    for (int i = 0; i < (int)data.size(); i++) {
+        string predicted = predict(tree, data[i]);
+        if (predicted == data[i].label) correct++;
+        cout << "Example " << i + 1 << ": " << data[i].label
+             << " -> " << predicted << endl;
+    }
+    cout << "Training accuracy: " << (100.0 * correct / data.size()) << "%" << endl;
+
+    deleteTree(tree);
     return 0;
 }
