@@ -296,9 +296,9 @@ void evaluateModel(TreeNode* tree, vector<Example> testing) {
 
 // Remove surrounding whitespace, including carriage returns from CSV files.
 string trim(string value) {
-    size_t first = value.find_first_not_of(" \\t\\r\\n");
+    size_t first = value.find_first_not_of(" \t\r\n");
     if (first == string::npos) return "";
-    size_t last = value.find_last_not_of(" \\t\\r\\n");
+    size_t last = value.find_last_not_of(" \t\r\n");
     return value.substr(first, last - first + 1);
 }
 
