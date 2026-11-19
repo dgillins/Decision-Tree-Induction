@@ -55,3 +55,24 @@ Notes:
 - The split is reproducible, but for larger experiments we should run multiple splits or cross-validation.
 - Currently, categorical features are expected; continuous UCI features will need threshold splitting or other preprocessing.
 - When a denominator for a class metric is zero, the program displays zero by convention.
+
+## Step 5: UCI Mushroom classification benchmark
+
+Dataset: https://archive.ics.uci.edu/dataset/73/mushroom (8,124 labeled mushrooms, 22 categorical features).
+
+1. Download the original `agaricus-lepiota.data` file from UCI into `data/`.
+2. From the repository root run:
+
+```bash
+python3 scripts/prepare_mushroom.py
+g++ -std=c++17 -O2 main.cpp -o decision_tree
+./decision_tree data/mushroom.csv information_gain evaluate
+./decision_tree data/mushroom.csv gain_ratio evaluate
+./decision_tree data/mushroom.csv gini evaluate
+```
+
+The converter moves the original first-column class label to the last column to match the C++ reader and keeps missing `?` values as their own category. The file `data/mushroom.csv` is generated locally and does not need to be committed.
+
+**Important:** Evaluation output contains a large decision tree for this dataset. For easier reading, redirect results to files, e.g. `./decision_tree data/mushroom.csv gini evaluate > gini_mushroom_output.txt`.
+
+The current tree supports categorical multiway splits only and has no pruning. Benchmark results should be interpreted with those limitations. Do not treat the eight-example weather experiment as a performance benchmark.
