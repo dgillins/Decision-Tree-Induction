@@ -6,6 +6,8 @@ from pathlib import Path
 import csv
 import time
 import resource
+import argparse
+import json
 
 import pandas as pd
 from sklearn.compose import ColumnTransformer
@@ -17,6 +19,12 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score, confusion_matrix, precision_recall_fscore_support,
 )
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--model", choices=["naive_bayes", "knn", "logistic_regression"])
+parser.add_argument("--json-output", help="Save one model's numerical results as JSON")
+parser.add_argument("--quiet", action="store_true", help="Hide detailed model output")
+args = parser.parse_args()
 
 train_path = Path("data/mushroom_train.csv")
 test_path = Path("data/mushroom_test.csv")
@@ -35,20 +43,25 @@ label_name = train.columns[-1]
 X_train, y_train = train[feature_names], train[label_name]
 X_test, y_test = test[feature_names], test[label_name]
 labels = sorted(set(y_train) | set(y_test))
-print(f"Training examples: {len(train)}")
-print(f"Test examples: {len(test)}")
-print(f"Class labels: {labels} (e=edible, p=poisonous)")
+if not args.quiet:
+    print(f"Training examples: {len(train)}")
+if not args.quiet:
+    print(f"Test examples: {len(test)}")
+if not args.quiet:
+    print(f"Class labels: {labels} (e=edible, p=poisonous)")
 
 # One-hot encoding fits ONLY on training data to prevent data leakage.
 # These models are all tested with the same encoded categorical features.
 models = {
-    "Naive Bayes": BernoulliNB(),
-    "KNN (k=5)": KNeighborsClassifier(n_neighbors=5),
-    "Logistic Regression": LogisticRegression(max_iter=1000, random_state=42),
+    "naive_bayes": ("Naive Bayes", BernoulliNB()),
+    "knn": ("KNN (k=5)", KNeighborsClassifier(n_neighbors=5)),
+    "logistic_regression": ("Logistic Regression", LogisticRegression(max_iter=1000, random_state=42)),
 }
 
 output_rows = []
-for name, classifier in models.items():
+for model_key, (name, classifier) in models.items():
+    if args.model and model_key != args.model:
+        continue
     preprocessing = ColumnTransformer(
         [("categorical", OneHotEncoder(handle_unknown="ignore"), feature_names)]
     )
@@ -67,20 +80,22 @@ for name, classifier in models.items():
         y_test, predictions, labels=labels, average="macro", zero_division=0
     )
     matrix = confusion_matrix(y_test, predictions, labels=labels)
-    print(f"\n===== {name} =====")
-    print("Confusion matrix (rows=actual, columns=predicted)")
-    print("Labels:", ", ".join(labels))
-    print(matrix)
-    print(f"Test accuracy: {acc * 100:.4f}%")
-    print(f"Macro precision: {precision:.4f}")
-    print(f"Macro recall/sensitivity: {recall:.4f}")
-    print(f"Macro F1: {f1:.4f}")
-    print(f"Training time: {train_seconds:.4f} seconds")
-    print(f"Prediction time: {prediction_seconds:.4f} seconds")
-    print("Peak Python process RSS so far (KB; cumulative across models):", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    if not args.quiet:
+        print(f"\n===== {name} =====")
+        print("Confusion matrix (rows=actual, columns=predicted)")
+        print("Labels:", ", ".join(labels))
+        print(matrix)
+        print(f"Test accuracy: {acc * 100:.4f}%")
+        print(f"Macro precision: {precision:.4f}")
+        print(f"Macro recall/sensitivity: {recall:.4f}")
+        print(f"Macro F1: {f1:.4f}")
+        print(f"Training time: {train_seconds:.4f} seconds")
+        print(f"Prediction time: {prediction_seconds:.4f} seconds")
+        print("Peak process RSS so far (KB):", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
     output_rows.append({
         "classifier": name,
+        "model_key": model_key,
         "train_examples": len(train),
         "test_examples": len(test),
         "test_accuracy_percent": round(acc * 100, 4),
@@ -93,10 +108,15 @@ for name, classifier in models.items():
         "confusion_matrix": ";".join("|".join(str(v) for v in row) for row in matrix),
     })
 
-output = Path("results/classifier_comparison.csv")
-output.parent.mkdir(exist_ok=True)
-with output.open("w", newline="") as result_file:
-    writer = csv.DictWriter(result_file, fieldnames=list(output_rows[0]))
-    writer.writeheader()
-    writer.writerows(output_rows)
-print(f"\nSaved results to {output}")
+if args.json_output:
+    # When --model is specified, the whole process contains only one model.
+    Path(args.json_output).write_text(json.dumps(output_rows[0]) + "\n")
+elif not args.model:
+    output = Path("results/classifier_comparison.csv")
+    output.parent.mkdir(exist_ok=True)
+    with output.open("w", newline="") as result_file:
+        writer = csv.DictWriter(result_file, fieldnames=list(output_rows[0]))
+        writer.writeheader()
+        writer.writerows(output_rows)
+    if not args.quiet:
+        print(f"\nSaved results to {output}")
