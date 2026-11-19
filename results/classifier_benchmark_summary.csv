@@ -1,0 +1,4 @@
+model_key,runs,test_accuracy_percent,avg_training_seconds,avg_prediction_seconds,avg_total_process_seconds,avg_peak_memory_kb
+naive_bayes,5,94.8301,0.0748,0.0146,2.2960,170585.6
+knn,5,100,0.0713,0.3393,2.4480,366437.6
+logistic_regression,5,100,0.0946,0.0184,2.1620,171345.6
