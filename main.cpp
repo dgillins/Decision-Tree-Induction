@@ -6,6 +6,9 @@
 #include <map>
 #include <cmath>
 #include <iomanip>
+#include <random>
+#include <algorithm>
+#include <set>
 using namespace std;
 
 // Store one example with its features and correct class
@@ -193,6 +196,104 @@ void deleteTree(TreeNode* node) {
     delete node;
 }
 
+
+// Make a repeatable 75/25 class-stratified split.
+// Keep at least one training example per class whenever possible.
+void splitData(vector<Example> data, vector<Example>& training,
+               vector<Example>& testing) {
+    map<string, vector<Example>> byClass;
+    for (Example example : data) byClass[example.label].push_back(example);
+
+    mt19937 rng(42);
+    for (auto group : byClass) {
+        vector<Example> examples = group.second;
+        shuffle(examples.begin(), examples.end(), rng);
+        int n = (int)examples.size();
+        int testCount = (int)(n * 0.25 + 0.5);
+        if (n >= 2 && testCount < 1) testCount = 1;
+        if (testCount >= n) testCount = n - 1;
+
+        for (int i = 0; i < n; i++) {
+            if (i < testCount) testing.push_back(examples[i]);
+            else training.push_back(examples[i]);
+        }
+    }
+}
+
+// A zero denominator means the corresponding measure is undefined.
+// Return zero for a consistent display in that case.
+double safeDivide(double numerator, double denominator) {
+    if (denominator == 0.0) return 0.0;
+    return numerator / denominator;
+}
+
+// Print a multiclass confusion matrix and one-vs-rest class metrics.
+// Matrix rows are actual classes; columns are predicted classes.
+void evaluateModel(TreeNode* tree, vector<Example> testing) {
+    set<string> classSet;
+    for (Example example : testing) {
+        classSet.insert(example.label);
+        classSet.insert(predict(tree, example));
+    }
+    vector<string> labels(classSet.begin(), classSet.end());
+    map<string, map<string, int>> matrix;
+    int correct = 0;
+    for (Example example : testing) {
+        string predicted = predict(tree, example);
+        matrix[example.label][predicted]++;
+        if (predicted == example.label) correct++;
+    }
+
+    cout << "\nConfusion Matrix (rows = actual, columns = predicted):" << endl;
+    cout << setw(14) << "Actual/Pred";
+    for (string label : labels) cout << setw(14) << label;
+    cout << endl;
+    for (string actual : labels) {
+        cout << setw(14) << actual;
+        for (string predicted : labels) {
+            cout << setw(14) << matrix[actual][predicted];
+        }
+        cout << endl;
+    }
+
+    cout << "\nTest accuracy: " << 100.0 * safeDivide(correct, testing.size()) << "%" << endl;
+    cout << "Metrics are computed one-vs-rest for each class." << endl;
+    cout << left << setw(14) << "Class" << right
+         << setw(12) << "Precision" << setw(12) << "Recall"
+         << setw(14) << "Specificity" << setw(12) << "F1" << endl;
+
+    double macroPrecision = 0, macroRecall = 0, macroSpecificity = 0, macroF1 = 0;
+    int total = (int)testing.size();
+    for (string label : labels) {
+        int tp = matrix[label][label];
+        int fn = 0, fp = 0;
+        for (string other : labels) {
+            if (other != label) {
+                fn += matrix[label][other];
+                fp += matrix[other][label];
+            }
+        }
+        int tn = total - tp - fn - fp;
+        double precision = safeDivide(tp, tp + fp);
+        double recall = safeDivide(tp, tp + fn);
+        double specificity = safeDivide(tn, tn + fp);
+        double f1 = safeDivide(2 * precision * recall, precision + recall);
+        macroPrecision += precision;
+        macroRecall += recall;
+        macroSpecificity += specificity;
+        macroF1 += f1;
+        cout << left << setw(14) << label << right
+             << setw(12) << precision << setw(12) << recall
+             << setw(14) << specificity << setw(12) << f1 << endl;
+    }
+    double count = labels.size();
+    cout << left << setw(14) << "Macro avg" << right
+         << setw(12) << macroPrecision / count
+         << setw(12) << macroRecall / count
+         << setw(14) << macroSpecificity / count
+         << setw(12) << macroF1 / count << endl;
+}
+
 int main(int argc, char* argv[]) {
     string fileName = "data/weather.csv";
     if (argc > 1) fileName = argv[1];
@@ -250,9 +351,28 @@ int main(int argc, char* argv[]) {
         cout << "  " << entry.first << ": " << entry.second << endl;
     }
 
+    // Add 'evaluate' as the third argument for held-out testing.
+    bool evaluate = (argc > 3 && string(argv[3]) == "evaluate");
+    vector<Example> trainingData, testData;
+    if (evaluate) {
+        splitData(data, trainingData, testData);
+        if (trainingData.empty() || testData.empty()) {
+            cout << "Not enough data for a train/test split." << endl;
+            return 1;
+        }
+        cout << "\nTrain/test split (seed 42): "
+             << trainingData.size() << " train, " << testData.size() << " test" << endl;
+    } else {
+        trainingData = data;
+    }
+
+    // All evaluation-mode feature scores must use training data only.
+    map<string, int> trainingCounts;
+    for (Example example : trainingData) trainingCounts[example.label]++;
+
     cout << fixed << setprecision(4);
-    cout << "\nParent entropy: " << entropy(classCounts) << endl;
-    cout << "Parent Gini: " << gini(classCounts) << endl;
+    cout << "\nParent entropy: " << entropy(trainingCounts) << endl;
+    cout << "Parent Gini: " << gini(trainingCounts) << endl;
     cout << "\nFeature split scores:" << endl;
     cout << "Feature            Info Gain   Gain Ratio   Gini Decrease" << endl;
 
@@ -260,7 +380,7 @@ int main(int argc, char* argv[]) {
     string bestGainFeature, bestRatioFeature, bestGiniFeature;
 
     for (int i = 0; i < (int)columnNames.size() - 1; i++) {
-        SplitScores s = evaluateFeature(data, i);
+        SplitScores s = evaluateFeature(trainingData, i);
         cout << left << setw(19) << columnNames[i]
              << right << setw(10) << s.informationGain
              << setw(13) << s.gainRatio
@@ -293,20 +413,24 @@ int main(int argc, char* argv[]) {
     }
     vector<int> features;
     for (int i = 0; i < (int)columnNames.size() - 1; i++) features.push_back(i);
-    TreeNode* tree = buildTree(data, features, metric);
+    TreeNode* tree = buildTree(trainingData, features, metric);
 
     cout << "\nDecision Tree (metric: " << metric << "):" << endl;
     printTree(tree, columnNames);
 
-    int correct = 0;
-    cout << "\nTraining examples: Actual -> Predicted" << endl;
-    for (int i = 0; i < (int)data.size(); i++) {
-        string predicted = predict(tree, data[i]);
-        if (predicted == data[i].label) correct++;
-        cout << "Example " << i + 1 << ": " << data[i].label
-             << " -> " << predicted << endl;
+    if (evaluate) {
+        evaluateModel(tree, testData);
+    } else {
+        int correct = 0;
+        cout << "\nTraining examples: Actual -> Predicted" << endl;
+        for (int i = 0; i < (int)data.size(); i++) {
+            string predicted = predict(tree, data[i]);
+            if (predicted == data[i].label) correct++;
+            cout << "Example " << i + 1 << ": " << data[i].label
+                 << " -> " << predicted << endl;
+        }
+        cout << "Training accuracy: " << (100.0 * correct / data.size()) << "%" << endl;
     }
-    cout << "Training accuracy: " << (100.0 * correct / data.size()) << "%" << endl;
 
     deleteTree(tree);
     return 0;
