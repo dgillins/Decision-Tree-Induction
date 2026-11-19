@@ -302,6 +302,24 @@ string trim(string value) {
     return value.substr(first, last - first + 1);
 }
 
+
+// Write the exact C++ train/test split for fair comparison with Python models.
+bool writeSplitCSV(string fileName, vector<string> columnNames,
+                   vector<Example> examples) {
+    ofstream output(fileName);
+    if (!output) return false;
+    for (int i = 0; i < (int)columnNames.size(); i++) {
+        if (i) output << ",";
+        output << columnNames[i];
+    }
+    output << "\n";
+    for (Example example : examples) {
+        for (string feature : example.features) output << feature << ",";
+        output << example.label << "\n";
+    }
+    return true;
+}
+
 int main(int argc, char* argv[]) {
     string fileName = "data/weather.csv";
     if (argc > 1) fileName = argv[1];
@@ -359,10 +377,11 @@ int main(int argc, char* argv[]) {
         cout << "  " << entry.first << ": " << entry.second << endl;
     }
 
-    // Add 'evaluate' as the third argument for held-out testing.
+    // 'evaluate' scores the C++ classifier; 'export_split' saves matching CSVs.
+    bool exportSplit = (argc > 3 && string(argv[3]) == "export_split");
     bool evaluate = (argc > 3 && string(argv[3]) == "evaluate");
     vector<Example> trainingData, testData;
-    if (evaluate) {
+    if (evaluate || exportSplit) {
         splitData(data, trainingData, testData);
         if (trainingData.empty() || testData.empty()) {
             cout << "Not enough data for a train/test split." << endl;
@@ -372,6 +391,19 @@ int main(int argc, char* argv[]) {
              << trainingData.size() << " train, " << testData.size() << " test" << endl;
     } else {
         trainingData = data;
+    }
+
+    if (exportSplit) {
+        if (!writeSplitCSV("data/mushroom_train.csv", columnNames, trainingData) ||
+            !writeSplitCSV("data/mushroom_test.csv", columnNames, testData)) {
+            cout << "Could not write train/test CSV files in data/." << endl;
+            return 1;
+        }
+        cout << "Exported: data/mushroom_train.csv (" << trainingData.size()
+             << " examples)" << endl;
+        cout << "Exported: data/mushroom_test.csv (" << testData.size()
+             << " examples)" << endl;
+        return 0;
     }
 
     // All evaluation-mode feature scores must use training data only.
