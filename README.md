@@ -100,3 +100,19 @@ The script fits a one-hot encoder on the training data only and prints held-out 
 We use `BernoulliNB` for binary one-hot features; KNN uses `k=5` and Euclidean distance on the encoded vectors; Logistic Regression uses `max_iter=1000`. These are **reference implementations** from scikit-learn, not custom C++ implementations.
 
 For fairness, compare accuracy and confusion matrices using the exported split. Be careful comparing C++ total process time or peak RSS directly against Python, which includes interpreter, library and preprocessing overhead. Report training and prediction times separately where possible.
+
+## Step 7: Five independent resource benchmarks for comparison classifiers
+
+Run from the repository root, after exporting the fixed Mushroom split and installing Python dependencies:
+
+```bash
+git pull origin main
+python3 scripts/benchmark_classifiers.py
+```
+
+The runner executes each baseline **five times in its own Python subprocess** and uses GNU `/usr/bin/time` for total process elapsed time and peak resident memory (KB). It also records training and prediction timings reported within the process, accuracy, and confusion-matrix data. Output CSVs:
+
+- `results/classifier_benchmark_runs.csv` — 15 individual runs
+- `results/classifier_benchmark_summary.csv` — per-model averages
+
+This avoids the cumulative RSS problem from benchmarking all three models inside one Python process. Python RSS includes the interpreter, imported packages, preprocessing and model memory, so it is **not directly comparable as model-only memory** to our C++ binary.
