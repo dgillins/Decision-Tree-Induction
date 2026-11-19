@@ -67,7 +67,7 @@ for name, classifier in models.items():
         y_test, predictions, labels=labels, average="macro", zero_division=0
     )
     matrix = confusion_matrix(y_test, predictions, labels=labels)
-    print(f"\\n===== {name} =====")
+    print(f"\n===== {name} =====")
     print("Confusion matrix (rows=actual, columns=predicted)")
     print("Labels:", ", ".join(labels))
     print(matrix)
@@ -77,7 +77,7 @@ for name, classifier in models.items():
     print(f"Macro F1: {f1:.4f}")
     print(f"Training time: {train_seconds:.4f} seconds")
     print(f"Prediction time: {prediction_seconds:.4f} seconds")
-    print("Peak process RSS (KB):", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    print("Peak Python process RSS so far (KB; cumulative across models):", resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
 
     output_rows.append({
         "classifier": name,
@@ -99,4 +99,4 @@ with output.open("w", newline="") as result_file:
     writer = csv.DictWriter(result_file, fieldnames=list(output_rows[0]))
     writer.writeheader()
     writer.writerows(output_rows)
-print(f"\\nSaved results to {output}")
+print(f"\nSaved results to {output}")
