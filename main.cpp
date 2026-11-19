@@ -4,6 +4,8 @@
 #include <vector>
 #include <string>
 #include <map>
+#include <cmath>
+#include <iomanip>
 using namespace std;
 
 // Store one example with its features and correct class
@@ -12,8 +14,78 @@ struct Example {
     string label;
 };
 
+// Entropy measures how mixed the class labels are
+double entropy(map<string, int> counts) {
+    int total = 0;
+    for (auto entry : counts) total += entry.second;
+    if (total == 0) return 0.0;
+
+    double result = 0.0;
+    for (auto entry : counts) {
+        if (entry.second == 0) continue;
+        double p = (double)entry.second / total;
+        result -= p * log2(p);
+    }
+    return result;
+}
+
+// Gini impurity is zero when every example has the same class
+double gini(map<string, int> counts) {
+    int total = 0;
+    for (auto entry : counts) total += entry.second;
+    if (total == 0) return 0.0;
+
+    double result = 1.0;
+    for (auto entry : counts) {
+        double p = (double)entry.second / total;
+        result -= p * p;
+    }
+    return result;
+}
+
+// Hold the three scores for splitting on a feature
+struct SplitScores {
+    double informationGain = 0.0;
+    double gainRatio = 0.0;
+    double giniDecrease = 0.0;
+};
+
+// Evaluate one categorical feature against the correct class labels
+SplitScores evaluateFeature(vector<Example> data, int featureIndex) {
+    map<string, int> parentCounts;
+    map<string, map<string, int>> groups;
+
+    for (Example example : data) {
+        parentCounts[example.label]++;
+        groups[example.features[featureIndex]][example.label]++;
+    }
+
+    double parentEntropy = entropy(parentCounts);
+    double parentGini = gini(parentCounts);
+    double weightedEntropy = 0.0;
+    double weightedGini = 0.0;
+    double splitInformation = 0.0;
+
+    for (auto group : groups) {
+        int groupSize = 0;
+        for (auto entry : group.second) groupSize += entry.second;
+
+        double p = (double)groupSize / data.size();
+        weightedEntropy += p * entropy(group.second);
+        weightedGini += p * gini(group.second);
+        if (p > 0.0) splitInformation -= p * log2(p);
+    }
+
+    SplitScores scores;
+    scores.informationGain = parentEntropy - weightedEntropy;
+    scores.giniDecrease = parentGini - weightedGini;
+    if (splitInformation > 0.0) {
+        scores.gainRatio = scores.informationGain / splitInformation;
+    }
+    return scores;
+}
+
 int main(int argc, char* argv[]) {
-    // Step 1: Select the dataset
     string fileName = "data/weather.csv";
     if (argc > 1) fileName = argv[1];
 
@@ -23,7 +95,7 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Step 2: Read feature names from the first line
+    // The last column contains the class label
     string line, value;
     getline(file, line);
     stringstream header(line);
@@ -35,7 +107,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Step 3: Read each example; the last column is the class
     vector<Example> data;
     while (getline(file, line)) {
         if (line.empty()) continue;
@@ -56,11 +127,13 @@ int main(int argc, char* argv[]) {
     }
     file.close();
 
-    // Step 4: Count the examples in each class
-    map<string, int> classCounts;
-    for (int i = 0; i < (int)data.size(); i++) {
-        classCounts[data[i].label]++;
+    if (data.empty()) {
+        cout << "No examples found." << endl;
+        return 1;
     }
+
+    map<string, int> classCounts;
+    for (Example example : data) classCounts[example.label]++;
 
     cout << "Examples: " << data.size() << endl;
     cout << "Features: " << columnNames.size() - 1 << endl;
@@ -68,5 +141,39 @@ int main(int argc, char* argv[]) {
     for (auto entry : classCounts) {
         cout << "  " << entry.first << ": " << entry.second << endl;
     }
+
+    cout << fixed << setprecision(4);
+    cout << "\nParent entropy: " << entropy(classCounts) << endl;
+    cout << "Parent Gini: " << gini(classCounts) << endl;
+    cout << "\nFeature split scores:" << endl;
+    cout << "Feature            Info Gain   Gain Ratio   Gini Decrease" << endl;
+
+    double bestGain = -1.0, bestRatio = -1.0, bestGini = -1.0;
+    string bestGainFeature, bestRatioFeature, bestGiniFeature;
+
+    for (int i = 0; i < (int)columnNames.size() - 1; i++) {
+        SplitScores s = evaluateFeature(data, i);
+        cout << left << setw(19) << columnNames[i]
+             << right << setw(10) << s.informationGain
+             << setw(13) << s.gainRatio
+             << setw(16) << s.giniDecrease << endl;
+
+        if (s.informationGain > bestGain) {
+            bestGain = s.informationGain;
+            bestGainFeature = columnNames[i];
+        }
+        if (s.gainRatio > bestRatio) {
+            bestRatio = s.gainRatio;
+            bestRatioFeature = columnNames[i];
+        }
+        if (s.giniDecrease > bestGini) {
+            bestGini = s.giniDecrease;
+            bestGiniFeature = columnNames[i];
+        }
+    }
+
+    cout << "\nBest first split by Information Gain: " << bestGainFeature << endl;
+    cout << "Best first split by Gain Ratio: " << bestRatioFeature << endl;
+    cout << "Best first split by Gini Decrease: " << bestGiniFeature << endl;
     return 0;
 }
