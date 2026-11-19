@@ -294,6 +294,14 @@ void evaluateModel(TreeNode* tree, vector<Example> testing) {
          << setw(12) << macroF1 / count << endl;
 }
 
+// Remove surrounding whitespace, including carriage returns from CSV files.
+string trim(string value) {
+    size_t first = value.find_first_not_of(" \\t\\r\\n");
+    if (first == string::npos) return "";
+    size_t last = value.find_last_not_of(" \\t\\r\\n");
+    return value.substr(first, last - first + 1);
+}
+
 int main(int argc, char* argv[]) {
     string fileName = "data/weather.csv";
     if (argc > 1) fileName = argv[1];
@@ -309,7 +317,7 @@ int main(int argc, char* argv[]) {
     getline(file, line);
     stringstream header(line);
     vector<string> columnNames;
-    while (getline(header, value, ',')) columnNames.push_back(value);
+    while (getline(header, value, ',')) columnNames.push_back(trim(value));
 
     if (columnNames.size() < 2) {
         cout << "The dataset needs features and a class label." << endl;
@@ -321,7 +329,7 @@ int main(int argc, char* argv[]) {
         if (line.empty()) continue;
         stringstream row(line);
         vector<string> values;
-        while (getline(row, value, ',')) values.push_back(value);
+        while (getline(row, value, ',')) values.push_back(trim(value));
         if (values.size() != columnNames.size()) {
             cout << "Skipping a row with the wrong number of columns." << endl;
             continue;
